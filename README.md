@@ -18,7 +18,7 @@ Before start,
 
 [`Velodyne -> Panoramic Image`](Convert_Velo_2_Pano.ipynb) : Convert Velodyne data(model : HDL-64E) to panoramic image.  
 <p align="center">
-    <img src="images/pano.jpg" height="100" alt="panorama_image" /><br>
+    <img src="images/pano.jpg" width="680" alt="panorama_image" /><br>
 </p>  
   
 [`Velodyne -> Top-View Image`](Convert_Velo_2_Topview.ipynb) : Convert Velodyne data(model : HDL-64E) to Top-view image.    
