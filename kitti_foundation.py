@@ -62,12 +62,28 @@ class Kitti:
         return self.__img_type
 
     @property
+    def num_frame(self):
+        return self.__num_frames
+
+    @property
     def cur_frame(self):
         return self.__cur_frame
 
     @property
+    def img_size(self):
+        return self.__img_size
+
+    @property
     def velo_file(self):
         return self.__velo_file
+
+    @property
+    def velo_d_file(self):
+        x = self.__velo_file[:, 0]
+        y = self.__velo_file[:, 1]
+        z = self.__velo_file[:, 2]
+        d = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+        return np.hstack((self.__velo_file, d[:, None]))
 
     @property
     def camera_file(self):
@@ -105,11 +121,16 @@ class Kitti:
         for i in files.keys():
             self.__camera_file = files[i]
             self.__cur_frame = i
-            yield cv2.imread(self.__camera_file)
+            frame = cv2.imread(self.__camera_file)
+            if i == 0:
+                self.__img_size = frame.shape
+            yield frame
 
     def __get_camera_frame(self, files):
         """ Return image for one frame """
-        return cv2.imread(files[self.__frame_type])
+        frame = cv2.imread(files[self.__frame_type])
+        self.__img_size = frame.shape
+        return frame
 
     def __load_from_bin(self):
         """ Return numpy array including velodyne's all 3d x,y,z point cloud """
@@ -195,7 +216,7 @@ class Kitti:
                     f_tracklet[absoluteFrameNumber] = [cornerPosInVelo]
                     f_type[absoluteFrameNumber] = [tracklet.objectType]
 
-            return f_tracklet, f_type
+        return f_tracklet, f_type
 
     def __del__(self):
         pass
@@ -211,6 +232,15 @@ class Kitti_util(Kitti):
         self.__x, self.__y, self.__z, self.__d = None, None, None, None
         self.__h_fov, self.__v_fov = None, None
         self.__x_range, self.__y_range, self.__z_range = None, None, None
+        self.__get_sur_size, self.__get_top_size = None, None
+
+    @property
+    def surround_size(self):
+        return self.__get_sur_size
+
+    @property
+    def topview_size(self):
+        return self.__get_top_size
 
     def __calib_velo2cam(self):
         """
@@ -259,34 +289,22 @@ class Kitti_util(Kitti):
         self.__z = points[:, 2]
         self.__d = np.sqrt(self.__x ** 2 + self.__y ** 2 + self.__z ** 2)
 
-    # fov_setting통일하고 이거 따로
-    # tracklet=true,false로 예를 들어 topview에서 true면 그거에 맞게 좌표 바꿔서 출력
-    def __velo_filter(self, points):
+    def __point_matrix(self, points):
         """ extract points corresponding to FOV setting """
 
-        # upload current points
-        self.__upload_points(points)
-
-        if self.__h_fov[0] < -90:
-            self.__h_fov = (-90,) + self.__h_fov[1:]
-        if self.__h_fov[1] > 90:
-            self.__h_fov = self.__h_fov[:1] + (90,)
-
-        x_lim = self.__points_filter(self.__x)[:,None]
-        y_lim = self.__points_filter(self.__y)[:,None]
-        z_lim = self.__points_filter(self.__z)[:,None]
+        # filter in range points based on fov, x,y,z range setting
+        self.__points_filter(points)
 
         # Stack arrays in sequence horizontally
-        xyz_ = np.hstack((x_lim, y_lim, z_lim))
+        xyz_ = np.hstack((self.__x[:, None], self.__y[:, None], self.__z[:, None]))
         xyz_ = xyz_.T
 
         # stack (1,n) arrays filled with the number 1
         one_mat = np.full((1, xyz_.shape[1]), 1)
-        xyz_ = np.concatenate((xyz_, one_mat),axis = 0)
+        xyz_ = np.concatenate((xyz_, one_mat), axis=0)
 
         # need dist info for points color
-        dist_lim = self.__points_filter(self.__d)
-        color = self.__normalize_data(dist_lim, min=1, max=70, scale=120, clip=True)
+        color = self.__normalize_data(self.__d, min=1, max=70, scale=120, clip=True)
 
         return xyz_, color
 
@@ -294,7 +312,7 @@ class Kitti_util(Kitti):
         """ Return normalized data """
         if clip:
             # limit the values in an array
-            np.clip(val, 0, max, out=val)
+            np.clip(val, min, max, out=val)
         if depth:
             """
             print 'normalized depth value'
@@ -340,22 +358,29 @@ class Kitti_util(Kitti):
         # upload current points
         self.__upload_points(points)
 
+        x, y, z = points[:, 0], points[:, 1], points[:, 2]
+        d = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+
         if self.__h_fov is not None and self.__v_fov is not None:
-            for i in range(4):
-                if self.__h_fov[1] == self.__h_max and self.__h_fov[0] == self.__h_min and \
-                                self.__v_fov[1] == self.__v_max and self.__v_fov[0] == self.__v_min:
-                    return points[i]
-                elif self.__h_fov[1] == self.__h_max and self.__h_fov[0] == self.__h_min:
-                    return points[i][self.__hv_in_range(self.__d, self.__z, self.__v_fov, fov_type='v')]
-                elif self.__v_fov[1] == self.__v_max and self.__v_fov[0] == self.__v_min:
-                    return points[i][self.__hv_in_range(self.__x, self.__y, self.__h_fov, fov_type='h')]
-                else:
-                    h_points = self.__hv_in_range(self.__x, self.__y, self.__h_fov, fov_type='h')
-                    v_points = self.__hv_in_range(self.__d, self.__z, self.__v_fov, fov_type='v')
-                    return points[i][np.logical_and(h_points, v_points)]
+            if self.__h_fov[1] == self.__h_max and self.__h_fov[0] == self.__h_min and \
+                            self.__v_fov[1] == self.__v_max and self.__v_fov[0] == self.__v_min:
+                pass
+            elif self.__h_fov[1] == self.__h_max and self.__h_fov[0] == self.__h_min:
+                con = self.__hv_in_range(d, z, self.__v_fov, fov_type='v')
+                lim_x, lim_y, lim_z, lim_d = self.__x[con], self.__y[con], self.__z[con], self.__d[con]
+                self.__x, self.__y, self.__z, self.__d = lim_x, lim_y, lim_z, lim_d
+            elif self.__v_fov[1] == self.__v_max and self.__v_fov[0] == self.__v_min:
+                con = self.__hv_in_range(x, y, self.__h_fov, fov_type='h')
+                lim_x, lim_y, lim_z, lim_d = self.__x[con], self.__y[con], self.__z[con], self.__d[con]
+                self.__x, self.__y, self.__z, self.__d = lim_x, lim_y, lim_z, lim_d
+            else:
+                h_points = self.__hv_in_range(x, y, self.__h_fov, fov_type='h')
+                v_points = self.__hv_in_range(d, z, self.__v_fov, fov_type='v')
+                con = np.logical_and(h_points, v_points)
+                lim_x, lim_y, lim_z, lim_d = self.__x[con], self.__y[con], self.__z[con], self.__d[con]
+                self.__x, self.__y, self.__z, self.__d = lim_x, lim_y, lim_z, lim_d
         else:
-            self.__h_fov = (self.__h_min, self.__h_max)
-            self.__v_fov = (self.__v_min, self.__v_max)
+            pass
 
         if self.__x_range is None and self.__y_range is None and self.__z_range is None:
             pass
@@ -369,16 +394,17 @@ class Kitti_util(Kitti):
 
     def __surround_view(self, points, depth):
         """ convert coordinates for panoramic image """
-        
-        # filter in range points based on fov, x,y,z range setting
-        self.__points_filter(points)
 
+        # upload current points
+        self.__points_filter(points)
         # project point cloud to 2D point map
         x_img = np.arctan2(-self.__y, self.__x) / (self.__h_res * (np.pi / 180))
         y_img = -(np.arctan2(self.__z, self.__d) / (self.__v_res * (np.pi / 180)))
+        # filter in range points based on fov, x,y,z range setting
 
         x_size = int(np.ceil((self.__h_fov[1] - self.__h_fov[0]) / self.__h_res))
         y_size = int(np.ceil((self.__v_fov[1] - self.__v_fov[0]) / self.__v_res))
+        self.__get_sur_size = (x_size + 1, y_size + 1)
 
         # shift negative points to positive points (shift minimum value to 0)
         x_offset = self.__h_fov[0] / self.__h_res
@@ -386,7 +412,6 @@ class Kitti_util(Kitti):
         y_offset = self.__v_fov[1] / self.__v_res
         y_fine_tune = 1
         y_img = np.trunc(y_img + y_offset + y_fine_tune).astype(np.int32)
-
         dist = self.__normalize_data(self.__d, min=0, max=120, scale=255, depth=depth)
 
         # array to img
@@ -400,15 +425,16 @@ class Kitti_util(Kitti):
         # filter in range points based on fov, x,y,z range setting
         self.__points_filter(points)
 
-        x_size = int((self.__y_range[1] - self.__y_range[0]))
-        y_size = int((self.__x_range[1] - self.__x_range[0]))
+        x_size = int(np.ceil(self.__y_range[1] - self.__y_range[0]))
+        y_size = int(np.ceil(self.__x_range[1] - self.__x_range[0]))
+        self.__get_sur_size = (x_size * scale + 1, y_size * scale + 1)
 
         # convert 3D lidar coordinates(vehicle coordinates) to 2D image coordinates
         # Velodyne coordinates info : http://www.cvlibs.net/publications/Geiger2013IJRR.pdf
         # scale - for high resolution
         x_img = -(self.__y * scale).astype(np.int32)
         y_img = -(self.__x * scale).astype(np.int32)
-        print(min(x_img)) # 이거 오류 체크하기
+
         # shift negative points to positive points (shift minimum value to 0)
         x_img += int(np.trunc(self.__y_range[1] * scale))
         y_img += int(np.trunc(self.__x_range[1] * scale))
@@ -423,6 +449,14 @@ class Kitti_util(Kitti):
 
     def __velo_2_img_projection(self, points):
         """ convert velodyne coordinates to camera image coordinates """
+
+        # rough velodyne azimuth range corresponding to camera horizontal fov
+        if self.__h_fov is None:
+            self.__h_fov = (-50, 50)
+        if self.__h_fov[0] < -50:
+            self.__h_fov = (-50,) + self.__h_fov[1:]
+        if self.__h_fov[1] > 50:
+            self.__h_fov = self.__h_fov[:1] + (50,)
 
         # R_vc = Rotation matrix ( velodyne -> camera )
         # T_vc = Translation matrix ( velodyne -> camera )
@@ -440,7 +474,7 @@ class Kitti_util(Kitti):
                  [z_1 , z_2 , .. ]
                  [ 1  ,  1  , .. ]
         """
-        xyz_v, c_ = self.__velo_filter(points)
+        xyz_v, c_ = self.__point_matrix(points)
 
         """
         RT_ - rotation matrix & translation matrix
@@ -511,6 +545,11 @@ class Kitti_util(Kitti):
         self.__v_fov, self.__h_fov = v_fov, h_fov
         self.__x_range, self.__y_range, self.__z_range = x_range, y_range, z_range
 
+        if scale <= 0:
+            raise ValueError("scale value must be positive. default value is 10.")
+        elif float(scale).is_integer() is False:
+            scale = round(scale)
+
         velo_gen = self.velo_file
         if velo_gen is None:
             raise ValueError("Velo data is not included in this class")
@@ -522,13 +561,19 @@ class Kitti_util(Kitti):
         """ Top-view(Bird's eye view) image for one frame """
         self.__v_fov, self.__h_fov = v_fov, h_fov
         self.__x_range, self.__y_range, self.__z_range = x_range, y_range, z_range
+
+        if scale <= 0:
+            raise ValueError("scale value must be positive. default value is 10.")
+        elif float(scale).is_integer() is False:
+            scale = round(scale)
+
         velo_gen = self.velo_file
         if velo_gen is None:
             raise ValueError("Velo data is not included in this class")
         res = self.__topview(velo_gen, scale)
         return res
 
-    def velo_projection(self, v_fov, h_fov):
+    def velo_projection(self, h_fov=None, v_fov=None, x_range=None, y_range=None, z_range=None):
         """ print velodyne 3D points corresponding to camera 2D image """
 
         self.__v_fov, self.__h_fov = v_fov, h_fov
@@ -543,7 +588,7 @@ class Kitti_util(Kitti):
             res, c_ = self.__velo_2_img_projection(points)
             yield [frame, res, c_]
 
-    def velo_projection_frame(self, v_fov, h_fov):
+    def velo_projection_frame(self, h_fov=None, v_fov=None, x_range=None, y_range=None, z_range=None):
         """ print velodyne 3D points corresponding to camera 2D image """
 
         self.__v_fov, self.__h_fov = v_fov, h_fov
@@ -559,7 +604,7 @@ class Kitti_util(Kitti):
 
     def __del__(self):
         pass
-
+ 
 def print_projection_cv2(points, color, image):
     """ project converted velodyne points into camera image """
     hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
@@ -581,7 +626,7 @@ def print_projection_plt(points, color, image):
 def pano_example1():
     """ save one frame image about velodyne dataset converted to panoramic image  """
     velo_path = './velodyne_points/data'
-    v_fov, h_fov = (-24.9, 2.0), (-180, 180)
+    v_fov, h_fov = (-10.5, 2.0), (-60, 80)
     velo = Kitti_util(frame=89, velo_path=velo_path)
 
     frame = velo.velo_2_pano_frame(h_fov, v_fov, depth=False)
@@ -592,13 +637,17 @@ def pano_example1():
 def pano_example2():
     """ save video about velodyne dataset converted to panoramic image  """
     velo_path = './velodyne_points/data'
-    v_fov, h_fov = (-24.9, 2.0), (-180, 180)
+    v_fov, h_fov = (-24.9, 2.0), (-180, 160)
 
     velo2 = Kitti_util(frame='all', velo_path=velo_path)
     pano = velo2.velo_2_pano(h_fov, v_fov, depth=False)
 
+    velo = Kitti_util(frame=0, velo_path=velo_path)
+    velo.velo_2_pano_frame(h_fov, v_fov, depth=False)
+    size = velo.surround_size
+
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    vid = cv2.VideoWriter('pano_result.avi', fourcc, 25.0, (1030, 66), False)
+    vid = cv2.VideoWriter('pano_result.avi', fourcc, 25.0, size, False)
 
     for frame in pano:
         vid.write(frame)
@@ -609,10 +658,10 @@ def pano_example2():
 def topview_example1():
     """ save one frame image about velodyne dataset converted to topview image  """
     velo_path = './velodyne_points/data'
-    x_range, y_range, z_range, scale = (-20, 20), (-20, 20), (-2, 2), 10
+    x_range, y_range, z_range = (-15, 15), (-10, 10), (-2, 2)
     velo = Kitti_util(frame=89, velo_path=velo_path)
 
-    frame = velo.velo_2_topview_frame(x_range=x_range, y_range=y_range, z_range=z_range, scale=scale)
+    frame = velo.velo_2_topview_frame(x_range=x_range, y_range=y_range, z_range=z_range)
 
     cv2.imshow('panoramic result', frame)
     cv2.waitKey(0)
@@ -621,7 +670,7 @@ def topview_example2():
     """ save video about velodyne dataset converted to topview image  """
     velo_path = './velodyne_points/data'
     x_range, y_range, z_range, scale = (-20, 20), (-20, 20), (-2, 2), 10
-    size = int((max(y_range) - min(y_range)) * scale), int((max(x_range) - min(x_range)) * scale)
+    size = (int((max(y_range) - min(y_range)) * scale), int((max(x_range) - min(x_range)) * scale))
 
     velo2 = Kitti_util(frame='all', velo_path=velo_path)
     topview = velo2.velo_2_topview(x_range=x_range, y_range=y_range, z_range=z_range, scale=scale)
@@ -690,12 +739,20 @@ def projection_example2():
     print('video saved')
     vid.release()
 
+def xml_example():
+
+    xml_path = "./tracklet_labels.xml"
+    xml_check = Kitti_util(xml_path=xml_path)
+
+    tracklet_, type_ = xml_check.tracklet_info
+    print(tracklet_[0])
+
 if __name__ == "__main__":
 
     # pano_example1()
     # pano_example2()
-    # topview_example1()
-    topview_example2()
+    topview_example1()
+    # topview_example2()
     # projection_example1()
     # projection_example2()
 
