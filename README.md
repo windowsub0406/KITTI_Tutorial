@@ -2,7 +2,7 @@
   
 ## Introduction  
   
->This is personal result for studying Self-Driving Techs. In this tutorial, I'll upload various codes from basic methods(e.g. lidar point projection) to state-of-the-art techs(e.g. deeplearning-based vehicle detection). Mainly, 'velodyne, camera' data-based approach will be discussed but when the time allows, I'll treat stereo vision, too.  
+>This is personal result for studying Self-Driving Techs. In this tutorial, I'll upload various codes from basic methods(e.g. lidar point projection) to state-of-the-art techs(e.g. deeplearning-based vehicle detection). Mainly, 'velodyne, camera' data-based approach will be discussed but when the time allows, I'll treat stereo vision, too. Also, Kitti-dataset-related simple codes(e.g. load tracklet or velodyne points) are in [`kitti_foundation.py`](kitti_foundation.py) coded by myself.  
   
 Before start,  
  
@@ -31,4 +31,12 @@ Before start,
     <img src="images/projection.jpg" height="100" alt="projection_image" /><br>
 </p>  
   
-   
+[`Display 3D Tracklet`](display_groundtruth.ipynb) : Display 3D Tracklet on image  
+<p align="center">
+    <img src="images/tracklet.jpg" height="100" alt="tracklet_image" /><br>
+</p>  
+  
+  
+  
+## Contributions / Comments  
+always welcome any kind of comments and pull-requests
