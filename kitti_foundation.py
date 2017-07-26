@@ -216,6 +216,13 @@ class Kitti:
                     f_tracklet[absoluteFrameNumber] = [cornerPosInVelo]
                     f_type[absoluteFrameNumber] = [tracklet.objectType]
 
+        # fill none in non object frame
+        if self.num_frame is not None:
+            for i in range(self.__num_frame):
+                if i not in f_tracklet:
+                    f_tracklet[i] = None
+                    f_type[i] = None
+
         return f_tracklet, f_type
 
     def __del__(self):
