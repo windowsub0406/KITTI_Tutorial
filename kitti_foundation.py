@@ -218,7 +218,7 @@ class Kitti:
 
         # fill none in non object frame
         if self.num_frame is not None:
-            for i in range(self.__num_frame):
+            for i in range(self.num_frame):
                 if i not in f_tracklet:
                     f_tracklet[i] = None
                     f_type[i] = None
