@@ -108,10 +108,10 @@ class Tracklet(object):
     trackDataIter = iter(trackletObj)
     """
     if self.amtOccs is None:
-      return zip(self.trans, self.rots, self.states, self.occs, self.truncs, \
+      return itertools.izip(self.trans, self.rots, self.states, self.occs, self.truncs, \
           itertools.repeat(None), itertools.repeat(None), range(self.firstFrame, self.firstFrame+self.nFrames))
     else:
-      return zip(self.trans, self.rots, self.states, self.occs, self.truncs, \
+      return itertools.izip(self.trans, self.rots, self.states, self.occs, self.truncs, \
           self.amtOccs, self.amtBorders, range(self.firstFrame, self.firstFrame+self.nFrames))
 #end: class Tracklet
 
