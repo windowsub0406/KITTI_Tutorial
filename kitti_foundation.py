@@ -136,6 +136,7 @@ class Kitti:
         """ Return numpy array including velodyne's all 3d x,y,z point cloud """
 
         velo_bins = glob.glob(self.__velo_path + '/*.bin')
+        velo_bins.sort()
         self.__num_frames = len(velo_bins)
         velo_files = {i: velo_bins[i] for i in range(len(velo_bins))}
 
@@ -150,6 +151,7 @@ class Kitti:
         """ Return camera image """
 
         image_path = glob.glob(self.__camera_path + '/*.png')
+        image_path.sort()
         self.__num_frames = len(image_path)
         image_files = {i: image_path[i] for i in range(len(image_path))}
 
@@ -232,7 +234,7 @@ class Kitti_util(Kitti):
 
     def __init__(self, frame='all', velo_path=None, camera_path=None, \
                  img_type='gray', v2c_path=None, c2c_path=None, xml_path=None):
-        super().__init__(frame, velo_path, camera_path, img_type, v2c_path, c2c_path, xml_path)
+        super(Kitti_util, self).__init__(frame, velo_path, camera_path, img_type, v2c_path, c2c_path, xml_path)
         self.__h_min, self.__h_max = -180, 180
         self.__v_min, self.__v_max = -24.9, 2.0
         self.__v_res, self.__h_res = 0.42, 0.35
